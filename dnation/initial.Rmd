@@ -1,0 +1,102 @@
+---
+title: "7406 Project"
+output: html_notebook
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(tidyverse) # metapackage of all tidyverse packages
+  library(caret)
+  library(mice)
+  library(gridExtra)
+  library(koRpus.lang.en)
+  library(stringr)
+  library(magrittr)
+})
+
+```
+
+```{r}
+#Loading Resume df
+resume_df <- read_csv("./Datasets/Resume/Resume/Resume.csv")
+resume_df <- subset(resume_df, select = -c(Resume_html)) #Remove html formatted resume column
+```
+
+```{r}
+# Loading JobPosting dfs & joins
+jobpost_df <- read_csv("./Datasets/JobPosting/postings.csv")
+
+# By job_id
+jobpost_jobskills <- read_csv("./Datasets/JobPosting/jobs/job_skills.csv")
+jobpost_jobindustries<- read_csv("./Datasets/JobPosting/jobs/job_industries.csv")
+
+# By company_id
+jobpost_specialties <- read_csv("./Datasets/JobPosting/companies/company_specialities.csv")
+jobpost_industries <- read_csv("./Datasets/JobPosting/companies/company_industries.csv")
+jobpost_companies <- read_csv("./Datasets/JobPosting/companies/companies.csv")
+
+
+# After other joins
+jobpost_skillsmapping <- read_csv("./Datasets/JobPosting/mappings/skills.csv")
+jobpost_industrymapping <- read_csv("./Datasets/JobPosting/mappings/industries.csv")
+```
+
+```{r}
+jobpost_jobskills <- subset(jobpost_jobskills, !duplicated(job_id))
+jobpost_jobindustries <- subset(jobpost_jobindustries, !duplicated(job_id))
+jobpost_specialties <- subset(jobpost_specialties, !duplicated(company_id))
+jobpost_industries <- subset(jobpost_industries, !duplicated(company_id))
+jobpost_companies <- subset(jobpost_companies, !duplicated(company_id))
+jobpost_skillsmapping <- subset(jobpost_skillsmapping, !duplicated(skill_abr))
+jobpost_industrymapping <- subset(jobpost_industrymapping, !duplicated(industry_id))
+
+temp_df <- jobpost_df %>% 
+  left_join(jobpost_jobskills, by="job_id")  %>%
+  left_join(jobpost_jobindustries, by="job_id") %>%
+  left_join(jobpost_specialties, by="company_id") %>%
+  left_join(jobpost_industries, by=c("company_id")) %>%
+  left_join(jobpost_companies, by=c("company_id")) %>%
+  left_join(jobpost_skillsmapping, by=c("skill_abr")) %>%
+  left_join(jobpost_industrymapping, by=c("industry_id"))
+rm(jobpost_jobskills, jobpost_jobindustries, jobpost_specialties, jobpost_industries, jobpost_companies, jobpost_skillsmapping, jobpost_industrymapping)
+```
+
+```{r}
+# Cleaning jobpost
+#head(temp_df)
+colnames(temp_df)
+temp_df$zip_code <- coalesce(temp_df$zip_code.x, temp_df$zip_code.y)
+colnames(temp_df)[colnames(temp_df) == 'description.x'] <- 'job_description'
+colnames(temp_df)[colnames(temp_df) == 'description.y'] <- 'company_description'
+
+jobpost_df <- subset(temp_df, select = -c(job_id, company_id, applies, original_listed_time, application_type, expiry, closed_time, sponsored, fips, skill_abr, industry_id, zip_code.x, zip_code.y))
+rm(temp_df)
+head(jobpost_df)
+```
+
+```{r}
+jobpost_df <- mutate(jobpost_df, concat_posting = paste(jobpost_df$title, jobpost_df$job_description, jobpost_df$skills_desc, jobpost_df$skill_name, jobpost_df$industry_name, sep=" "))
+```
+
+```{r}
+## Cleaning resume
+#resume_df$Resume_str[1]
+gsub("[\r\n]", "", resume_df$Resume_str)
+gsub("[\t]", "", resume_df$Resume_str)
+str_squish(resume_df$Resume_str)
+```
+
+```{r}
+## Tokenizing dataframes
+x <- resume_df$Resume_str %>% 
+  str_to_lower %>%                                            # lowercase
+  str_replace_all("[[:punct:][:digit:][:cntrl:]]", "") %>%    # only alpha
+  str_replace_all("[[:space:]]+", " ")                        # single spaces
+resume_tokens <- strsplit(x, "\\s+")
+
+x <- jobpost_df$concat_posting %>% 
+  str_to_lower %>%                                            # lowercase
+  str_replace_all("[[:punct:][:digit:][:cntrl:]]", "") %>%    # only alpha
+  str_replace_all("[[:space:]]+", " ")                        # single spaces
+jobpost_tokens <- strsplit(x, "\\s+")
+```
